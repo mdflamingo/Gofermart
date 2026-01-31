@@ -3,20 +3,22 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/mdflamingo/Gofermart/internal/models"
+
 )
 
-type URLPair struct {
-	ShortURL    string
-	OriginalURL string
-	UserID      string
-}
+var ErrConflict = errors.New("conflict: duplicate entry")
+
 
 type DBStorage struct {
 	pool *pgxpool.Pool
@@ -96,4 +98,24 @@ func runMigrations(dsn string) error {
 
 func (d *DBStorage) Ping(ctx context.Context) error {
 	return d.pool.Ping(ctx)
+}
+
+func (d *DBStorage) Save(user models.UserDB) (error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+    _, err := d.pool.Exec(ctx,
+        `INSERT INTO users (login, password)
+         VALUES ($1, $2)`,
+        user.Login, user.Password)
+
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
+			return ErrConflict
+		}
+		return fmt.Errorf("failed to save URL: %w", err)
+	}
+
+	return nil
 }

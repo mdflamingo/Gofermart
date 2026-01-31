@@ -47,4 +47,5 @@ func initStorage(conf *config.Config) (*repository.DBStorage, error) {
 		}
 		logger.Log.Warn("Failed to initialize database storage")
 	}
+	return nil, nil
 }

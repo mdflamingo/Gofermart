@@ -1,0 +1,16 @@
+version: '3.9'
+
+volumes:
+  pg_data:
+
+services:
+  postgres:
+    image: postgres:16.1-alpine
+    container_name: postgres
+    env_file:
+      - .env
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    restart: always
+    ports:
+      - 5432:5432

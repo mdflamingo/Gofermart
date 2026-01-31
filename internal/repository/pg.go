@@ -6,9 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/golang-migrate/migrate/database/postgres"
 	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 type URLPair struct {

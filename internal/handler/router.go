@@ -14,9 +14,9 @@ func NewRouter(conf *config.Config, storage *repository.DBStorage) *chi.Mux {
 
 	r.Use(logger.RequestLogger)
 
-	// r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
-	// 	handler.DBHealthCheck(w, r, storage)
-	// })
+	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+		DBHealthCheck(w, r, storage)
+	})
 	// r.Get("/{id}", func(w http.ResponseWriter, req *http.Request) {
 	// 	handler.GetHandler(w, req, storage)
 	// })

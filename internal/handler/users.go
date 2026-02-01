@@ -16,42 +16,16 @@ import (
 	"go.uber.org/zap"
 )
 
-type SignedCookieMiddleware struct {
-    secretKey []byte
-}
+var ErrEmptyRequiredField = errors.New("login and password cannot be empty")
+var ErrJSONFormat = errors.New("invalid JSON format")
+var ErrRequestRead = errors.New("failed to read request body")
 
 func AuthorizationHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage) {
-    var requestUser models.AuthUser
-    var buf bytes.Buffer
-
-    _, err := buf.ReadFrom(request.Body)
+    userDB, err := parseBody(response, request)
     if err != nil {
-        logger.Log.Error("failed to read request body", zap.Error(err))
         http.Error(response, err.Error(), http.StatusBadRequest)
         return
-    }
-
-    if err = json.Unmarshal(buf.Bytes(), &requestUser); err != nil {
-        logger.Log.Error("Failed to unmarshal JSON",
-            zap.Error(err),
-            zap.String("request_body", buf.String()))
-        http.Error(response, err.Error(), http.StatusBadRequest)
-        return
-    }
-
-    if requestUser.Login == "" || requestUser.Password == "" {
-        http.Error(response, "Login and Password cannot be empty", http.StatusBadRequest)
-        return
-    }
-
-    h := sha256.New()
-    h.Write([]byte(requestUser.Password))
-    hashedPassword := h.Sum(nil)
-
-    userDB := models.UserDB{
-        Login:    requestUser.Login,
-        Password: hex.EncodeToString(hashedPassword),
-    }
+        }
 
     err = storage.Save(userDB)
     if err != nil {
@@ -70,37 +44,11 @@ func AuthorizationHandler(response http.ResponseWriter, request *http.Request, s
     response.WriteHeader(http.StatusOK)
 }
 func AuthenticationHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage, secretKey string) {
-    var requestUser models.AuthUser
-    var buf bytes.Buffer
-
-    _, err := buf.ReadFrom(request.Body)
+    userDB, err := parseBody(response, request)
     if err != nil {
-        logger.Log.Error("failed to read request body", zap.Error(err))
         http.Error(response, err.Error(), http.StatusBadRequest)
         return
-    }
-
-    if err = json.Unmarshal(buf.Bytes(), &requestUser); err != nil {
-        logger.Log.Error("Failed to unmarshal JSON",
-            zap.Error(err),
-            zap.String("request_body", buf.String()))
-        http.Error(response, err.Error(), http.StatusBadRequest)
-        return
-    }
-
-    if requestUser.Login == "" || requestUser.Password == "" {
-        http.Error(response, "Login and Password cannot be empty", http.StatusBadRequest)
-        return
-    }
-
-    h := sha256.New()
-    h.Write([]byte(requestUser.Password))
-    hashedPassword := h.Sum(nil)
-
-    userDB := models.UserDB{
-        Login:    requestUser.Login,
-        Password: hex.EncodeToString(hashedPassword),
-    }
+        }
 
     userID, err := storage.Get(userDB)
     if err != nil {
@@ -152,4 +100,36 @@ func createJWT(userID int, secretKey string) (string, error) {
 		return "", err
 	}
 	return tokenString, nil
+}
+
+func parseBody(_ http.ResponseWriter, request *http.Request) (models.UserDB, error) {
+    var requestUser models.AuthUser
+    var buf bytes.Buffer
+
+    _, err := buf.ReadFrom(request.Body)
+    if err != nil {
+        logger.Log.Error("failed to read request body", zap.Error(err))
+        return models.UserDB{}, ErrRequestRead
+    }
+
+    if err = json.Unmarshal(buf.Bytes(), &requestUser); err != nil {
+        logger.Log.Error("Failed to unmarshal JSON",
+            zap.Error(err),
+            zap.String("request_body", buf.String()))
+            return models.UserDB{}, ErrJSONFormat
+    }
+
+    if requestUser.Login == "" || requestUser.Password == "" {
+        return models.UserDB{}, ErrEmptyRequiredField
+    }
+
+    h := sha256.New()
+    h.Write([]byte(requestUser.Password))
+    hashedPassword := h.Sum(nil)
+
+    userDB := models.UserDB{
+        Login:    requestUser.Login,
+        Password: hex.EncodeToString(hashedPassword),
+    }
+    return userDB, nil
 }

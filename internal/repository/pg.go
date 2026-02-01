@@ -18,6 +18,7 @@ import (
 )
 
 var ErrConflict = errors.New("conflict: duplicate entry")
+var ErrNotFound = errors.New("obj not found")
 
 
 type DBStorage struct {
@@ -118,4 +119,20 @@ func (d *DBStorage) Save(user models.UserDB) (error) {
 	}
 
 	return nil
+}
+
+func (d *DBStorage) Get(user models.UserDB) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	var userID int
+
+	err := d.pool.QueryRow(ctx, "SELECT id FROM users WHERE login = $1 and password = $2", user.Login, user.Password).Scan(&userID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, ErrNotFound
+		}
+		return 0, fmt.Errorf("failed to get user: %w", err)
+	}
+	return userID, nil
 }

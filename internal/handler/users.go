@@ -7,15 +7,21 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/mdflamingo/Gofermart/internal/logger"
 	"github.com/mdflamingo/Gofermart/internal/models"
 	"github.com/mdflamingo/Gofermart/internal/repository"
 	"go.uber.org/zap"
 )
 
+type SignedCookieMiddleware struct {
+    secretKey []byte
+}
+
 func AuthorizationHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage) {
-    var requestUser models.AuthorizationUser
+    var requestUser models.AuthUser
     var buf bytes.Buffer
 
     _, err := buf.ReadFrom(request.Body)
@@ -62,4 +68,88 @@ func AuthorizationHandler(response http.ResponseWriter, request *http.Request, s
 
     response.Header().Set("Content-Type", "application/json")
     response.WriteHeader(http.StatusOK)
+}
+func AuthenticationHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage, secretKey string) {
+    var requestUser models.AuthUser
+    var buf bytes.Buffer
+
+    _, err := buf.ReadFrom(request.Body)
+    if err != nil {
+        logger.Log.Error("failed to read request body", zap.Error(err))
+        http.Error(response, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    if err = json.Unmarshal(buf.Bytes(), &requestUser); err != nil {
+        logger.Log.Error("Failed to unmarshal JSON",
+            zap.Error(err),
+            zap.String("request_body", buf.String()))
+        http.Error(response, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    if requestUser.Login == "" || requestUser.Password == "" {
+        http.Error(response, "Login and Password cannot be empty", http.StatusBadRequest)
+        return
+    }
+
+    h := sha256.New()
+    h.Write([]byte(requestUser.Password))
+    hashedPassword := h.Sum(nil)
+
+    userDB := models.UserDB{
+        Login:    requestUser.Login,
+        Password: hex.EncodeToString(hashedPassword),
+    }
+
+    userID, err := storage.Get(userDB)
+    if err != nil {
+        logger.Log.Error("failed to save user", zap.Error(err))
+
+        if errors.Is(err, repository.ErrNotFound) {
+            http.Error(response, "User not found", http.StatusUnauthorized)
+            return
+        }
+
+        http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+        return
+    }
+
+    jwtToken, err := createJWT(userID, secretKey)
+    if err != nil {
+        logger.Log.Error("failed to create JWT token", zap.Error(err))
+        http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+        return
+    }
+
+    http.SetCookie(response, &http.Cookie{
+        Name:     "token",
+        Value:    jwtToken,
+        HttpOnly: true,
+        Secure:   false,
+        SameSite: http.SameSiteLaxMode,
+        MaxAge:   30 * 24 * 3600,
+        Path:     "/",
+        Expires:  time.Now().Add(30 * 24 * time.Hour),
+    })
+
+
+    response.Header().Set("Content-Type", "application/json")
+    response.WriteHeader(http.StatusOK)
+}
+
+func createJWT(userID int, secretKey string) (string, error) {
+	claims := jwt.MapClaims{
+		"userID": userID,
+		"exp":    time.Now().Add(30 * 24 * time.Hour).Unix(),
+		"iat":    time.Now().Unix(),
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString([]byte(secretKey))
+	if err != nil {
+		logger.Log.Error("Error creating JWT", zap.Error(err))
+		return "", err
+	}
+	return tokenString, nil
 }

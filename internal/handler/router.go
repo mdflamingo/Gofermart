@@ -26,6 +26,9 @@ func NewRouter(conf *config.Config, storage *repository.DBStorage) *chi.Mux {
 	r.Post("/api/user/register", func(w http.ResponseWriter, req *http.Request) {
 		AuthorizationHandler(w, req, storage)
 	})
+	r.Post("/api/user/login", func(w http.ResponseWriter, req *http.Request) {
+		AuthenticationHandler(w, req, storage, conf.CookieSecretKey)
+	})
 	// r.Post("/api/shorten/batch", func(w http.ResponseWriter, req *http.Request) {
 	// 	handler.BatchHandler(w, req, conf.BaseShortURL, storage)
 	// })

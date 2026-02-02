@@ -55,7 +55,7 @@ func AuthenticationHandler(response http.ResponseWriter, request *http.Request, 
         logger.Log.Error("failed to save user", zap.Error(err))
 
         if errors.Is(err, repository.ErrNotFound) {
-            http.Error(response, "User not found", http.StatusUnauthorized)
+            http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
             return
         }
 

@@ -27,7 +27,7 @@ func AuthorizationHandler(response http.ResponseWriter, request *http.Request, s
         return
         }
 
-    err = storage.Save(userDB)
+    err = storage.SaveUser(userDB)
     if err != nil {
         logger.Log.Error("failed to save user", zap.Error(err))
 
@@ -50,7 +50,7 @@ func AuthenticationHandler(response http.ResponseWriter, request *http.Request, 
         return
         }
 
-    userID, err := storage.Get(userDB)
+    userID, err := storage.GetUser(userDB)
     if err != nil {
         logger.Log.Error("failed to save user", zap.Error(err))
 

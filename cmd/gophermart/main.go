@@ -1,6 +1,7 @@
 package main
 
 import (
+	// "fmt"
 	"log"
 	"net/http"
 
@@ -45,6 +46,7 @@ func initStorage(conf *config.Config) (*repository.DBStorage, error) {
 	if conf.DataBaseDSN != "" {
 		logger.Log.Info("Attempting to use database storage", zap.String("dsn", conf.DataBaseDSN))
 		if storage, err := repository.NewDBStorage(conf.DataBaseDSN); err == nil {
+			// fmt.Println(err)
 			logger.Log.Info("Successfully initialized database storage")
 			return storage, nil
 		}

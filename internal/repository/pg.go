@@ -20,6 +20,12 @@ import (
 var ErrConflict = errors.New("conflict: duplicate entry")
 var ErrNotFound = errors.New("obj not found")
 
+type Order struct {
+	Number    string
+	Status string
+	Accrual      int
+	Uploaded_at time.Time
+}
 
 type DBStorage struct {
 	pool *pgxpool.Pool
@@ -101,7 +107,7 @@ func (d *DBStorage) Ping(ctx context.Context) error {
 	return d.pool.Ping(ctx)
 }
 
-func (d *DBStorage) Save(user models.UserDB) (error) {
+func (d *DBStorage) SaveUser(user models.UserDB) (error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -121,7 +127,7 @@ func (d *DBStorage) Save(user models.UserDB) (error) {
 	return nil
 }
 
-func (d *DBStorage) Get(user models.UserDB) (int, error) {
+func (d *DBStorage) GetUser(user models.UserDB) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -135,4 +141,65 @@ func (d *DBStorage) Get(user models.UserDB) (int, error) {
 		return 0, fmt.Errorf("failed to get user: %w", err)
 	}
 	return userID, nil
+}
+
+
+func (d *DBStorage) SaveOrder(order string, userID int) (int, error) {
+    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+    defer cancel()
+
+    var returnedUserID int
+
+    err := d.pool.QueryRow(ctx,
+        `INSERT INTO orders (number, user_id)
+         VALUES ($1, $2)
+         ON CONFLICT (order_num)
+         DO UPDATE SET order_num = EXCLUDED.order_num
+         RETURNING user_id`,
+        order, userID).Scan(&returnedUserID)
+
+    if err != nil {
+        return 0, fmt.Errorf("failed to save order_num: %w", err)
+    }
+
+    if returnedUserID != userID {
+        return returnedUserID, ErrConflict
+    }
+
+    return returnedUserID, nil
+}
+
+func (d *DBStorage) GetOrders(userID int) ([]Order, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	rows, err := d.pool.Query(ctx,
+		"SELECT number, status, accrual, uploaded_at FROM orders WHERE user_id = $1 ORDER BY uploaded_at ASC",
+		userID)
+
+	if err != nil {
+		return nil, fmt.Errorf("database query error: %w", err)
+	}
+	defer rows.Close()
+
+	var orders []Order
+
+	for rows.Next() {
+		var order Order
+
+		if err := rows.Scan(&order.number, &order.status, &order.accrual, &order.uploaded_at); err != nil {
+			return nil, fmt.Errorf("data scan error: %w", err)
+		}
+		orders = append(orders, order)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows processing error: %w", err)
+	}
+
+	if len(orders) == 0 {
+		return []Order{}, nil
+	}
+
+	return orders, nil
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/mdflamingo/Gofermart/internal/config"
 	"github.com/mdflamingo/Gofermart/internal/logger"
 	"github.com/mdflamingo/Gofermart/internal/repository"
+	"github.com/mdflamingo/Gofermart/internal/middleware"
 )
 
 func NewRouter(conf *config.Config, storage *repository.DBStorage) *chi.Mux {
@@ -14,30 +15,30 @@ func NewRouter(conf *config.Config, storage *repository.DBStorage) *chi.Mux {
 
 	r.Use(logger.RequestLogger)
 
-	r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
-		DBHealthCheck(w, r, storage)
+	r.Group(func(r chi.Router) {
+		r.Get("/ping", func(w http.ResponseWriter, r *http.Request) {
+			DBHealthCheck(w, r, storage)
+		})
+
+		r.Post("/api/user/register", func(w http.ResponseWriter, r *http.Request) {
+			AuthorizationHandler(w, r, storage)
+		})
+
+		r.Post("/api/user/login", func(w http.ResponseWriter, r *http.Request) {
+			AuthenticationHandler(w, r, storage, conf.CookieSecretKey)
+		})
 	})
-	// r.Get("/{id}", func(w http.ResponseWriter, req *http.Request) {
-	// 	handler.GetHandler(w, req, storage)
-	// })
-	// r.Post("/", func(w http.ResponseWriter, req *http.Request) {
-	// 	handler.PostHandler(w, req, conf.BaseShortURL, storage)
-	// })
-	r.Post("/api/user/register", func(w http.ResponseWriter, req *http.Request) {
-		AuthorizationHandler(w, req, storage)
+
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.AuthMiddleware(conf.CookieSecretKey))
+
+		r.Post("/api/user/orders", func(w http.ResponseWriter, r *http.Request) {
+			UploadOrderNumHandler(w, r, storage)
+		})
+		r.Get("/api/user/orders", func(w http.ResponseWriter, r *http.Request) {
+			GetOrders(w, r, storage)
+		})
 	})
-	r.Post("/api/user/login", func(w http.ResponseWriter, req *http.Request) {
-		AuthenticationHandler(w, req, storage, conf.CookieSecretKey)
-	})
-	// r.Post("/api/shorten/batch", func(w http.ResponseWriter, req *http.Request) {
-	// 	handler.BatchHandler(w, req, conf.BaseShortURL, storage)
-	// })
-	// r.Get("/api/user/urls", func(w http.ResponseWriter, req *http.Request) {
-	// 	handler.GetUserURLSHandler(w, req, conf.BaseShortURL, storage)
-	// })
-	// r.Delete("/api/user/urls", func(w http.ResponseWriter, req *http.Request) {
-	// 	handler.DeleteUserURLSHandler(w, req, conf.BaseShortURL, storage)
-	// })
 
 	return r
 }

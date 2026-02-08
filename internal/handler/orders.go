@@ -43,7 +43,7 @@ func UploadOrderNumHandler(response http.ResponseWriter, request *http.Request, 
 	if !checkOrderNum(orderNum) {
 		logger.Log.Error("Incorrect order number format", zap.Error(err))
 		http.Error(response, "Incorrect order number format", http.StatusUnprocessableEntity)
-
+		return
 	}
 
 	userDB, err := storage.SaveOrder(orderNum, userID)
@@ -59,6 +59,7 @@ func UploadOrderNumHandler(response http.ResponseWriter, request *http.Request, 
 			http.Error(response, "The order number has already been uploaded by another user", http.StatusConflict)
 			return
 		}
+		logger.Log.Error("msg=", zap.Error(err))
         http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}

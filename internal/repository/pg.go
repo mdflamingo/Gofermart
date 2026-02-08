@@ -153,13 +153,13 @@ func (d *DBStorage) SaveOrder(order string, userID int) (int, error) {
     err := d.pool.QueryRow(ctx,
         `INSERT INTO orders (number, user_id)
          VALUES ($1, $2)
-         ON CONFLICT (order_num)
-         DO UPDATE SET order_num = EXCLUDED.order_num
+         ON CONFLICT (number)
+         DO UPDATE SET number = EXCLUDED.number
          RETURNING user_id`,
         order, userID).Scan(&returnedUserID)
 
     if err != nil {
-        return 0, fmt.Errorf("failed to save order_num: %w", err)
+        return 0, fmt.Errorf("failed to save order number: %w", err)
     }
 
     if returnedUserID != userID {
@@ -187,7 +187,7 @@ func (d *DBStorage) GetOrders(userID int) ([]Order, error) {
 	for rows.Next() {
 		var order Order
 
-		if err := rows.Scan(&order.number, &order.status, &order.accrual, &order.uploaded_at); err != nil {
+		if err := rows.Scan(&order.Number, &order.Status, &order.Accrual, &order.Uploaded_at); err != nil {
 			return nil, fmt.Errorf("data scan error: %w", err)
 		}
 		orders = append(orders, order)

@@ -1,0 +1,7 @@
+CREATE TABLE balance (
+    id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    balance REAL NOT NULL DEFAULT 0,
+    user_id BIGINT NOT NULL,
+    uploaded_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);

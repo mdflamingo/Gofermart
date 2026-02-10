@@ -14,7 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/mdflamingo/Gofermart/internal/models"
-
 )
 
 var ErrConflict = errors.New("conflict: duplicate entry")
@@ -25,6 +24,11 @@ type Order struct {
 	Status string
 	Accrual      int
 	Uploaded_at time.Time
+}
+
+type Balance struct {
+	Balance float64
+	Withdrawn int
 }
 
 type DBStorage struct {
@@ -202,4 +206,45 @@ func (d *DBStorage) GetOrders(userID int) ([]Order, error) {
 	}
 
 	return orders, nil
+}
+
+func (d *DBStorage) GetBalance(userID int) (Balance, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	var balance Balance
+
+	err := d.pool.QueryRow(ctx,
+		"SELECT balance, withdrawn FROM balance WHERE user_id = $1 ORDER BY uploaded_at ASC",
+		userID).Scan(&balance.Balance, &balance.Withdrawn)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Balance{}, ErrNotFound
+		}
+		return  Balance{}, err
+	}
+	return balance, nil
+}
+
+func (d *DBStorage) SaveWithdrawn(userID int, withdrawn int, balance float64) (error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_, err := d.pool.Exec(ctx,
+		`INSERT INTO balance (user_id, balance, withdrawn)
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (user_id) DO UPDATE
+		 SET balance = EXCLUDED.balance,
+		     withdrawn = EXCLUDED.withdrawn,
+		     uploaded_at = NOW()`,
+		userID, balance, withdrawn)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return  err
+	}
+	return nil
 }

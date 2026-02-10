@@ -93,7 +93,7 @@ func checkOrderNum(number string) bool {
 	return sum%10 == 0
 }
 
-func GetOrders(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage) {
+func GetOrdersHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage) {
 	userID, err := middleware.GetUserIDFromRequest(request)
 	if err != nil {
 		logger.Log.Warn("failed to get userID", zap.Error(err))

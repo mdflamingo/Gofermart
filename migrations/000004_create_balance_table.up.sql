@@ -1,7 +1,10 @@
 CREATE TABLE balance (
     id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     balance REAL NOT NULL DEFAULT 0,
-    user_id BIGINT NOT NULL,
+    withdrawn INTEGER NOT NULL DEFAULT 0,
+    user_id BIGINT NOT NULL UNIQUE,
+    order_id BIGINT NOT NULL,
     uploaded_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    FOREIGN KEY (user_id) REFERENCES users(id)
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (order_id) REFERENCES orders(id)
 );

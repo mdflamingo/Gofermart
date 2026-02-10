@@ -36,7 +36,13 @@ func NewRouter(conf *config.Config, storage *repository.DBStorage) *chi.Mux {
 			UploadOrderNumHandler(w, r, storage)
 		})
 		r.Get("/api/user/orders", func(w http.ResponseWriter, r *http.Request) {
-			GetOrders(w, r, storage)
+			GetOrdersHandler(w, r, storage)
+		})
+		r.Get("/api/user/balance", func(w http.ResponseWriter, r *http.Request) {
+			GetBalanceHandler(w, r, storage)
+		})
+		r.Post("/api/user/balance/withdraw", func(w http.ResponseWriter, r *http.Request) {
+			WithdrawalsHandler(w, r, storage)
 		})
 	})
 

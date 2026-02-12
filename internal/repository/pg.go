@@ -20,15 +20,21 @@ var ErrConflict = errors.New("conflict: duplicate entry")
 var ErrNotFound = errors.New("obj not found")
 
 type Order struct {
-	Number    string
-	Status string
-	Accrual      int
-	Uploaded_at time.Time
+	Number     string
+	Status     string
+	Accrual    int
+	UploadedAt time.Time
 }
 
 type Balance struct {
-	Balance float64
+	Balance   float64
 	Withdrawn int
+}
+
+type Withdrawal struct {
+	Order       string
+	Sum         int
+	ProcessedAt time.Time
 }
 
 type DBStorage struct {
@@ -111,14 +117,14 @@ func (d *DBStorage) Ping(ctx context.Context) error {
 	return d.pool.Ping(ctx)
 }
 
-func (d *DBStorage) SaveUser(user models.UserDB) (error) {
+func (d *DBStorage) SaveUser(user models.UserDB) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-    _, err := d.pool.Exec(ctx,
-        `INSERT INTO users (login, password)
+	_, err := d.pool.Exec(ctx,
+		`INSERT INTO users (login, password)
          VALUES ($1, $2)`,
-        user.Login, user.Password)
+		user.Login, user.Password)
 
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -137,7 +143,7 @@ func (d *DBStorage) GetUser(user models.UserDB) (int, error) {
 
 	var userID int
 
-	err := d.pool.QueryRow(ctx, "SELECT id FROM users WHERE login = $1 and password = $2", user.Login, user.Password).Scan(&userID)
+	err := d.pool.QueryRow(ctx, `SELECT id FROM users WHERE login = $1 and password = $2`, user.Login, user.Password).Scan(&userID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, ErrNotFound
@@ -147,30 +153,29 @@ func (d *DBStorage) GetUser(user models.UserDB) (int, error) {
 	return userID, nil
 }
 
-
 func (d *DBStorage) SaveOrder(order string, userID int) (int, error) {
-    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-    defer cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
 
-    var returnedUserID int
+	var returnedUserID int
 
-    err := d.pool.QueryRow(ctx,
-        `INSERT INTO orders (number, user_id)
+	err := d.pool.QueryRow(ctx,
+		`INSERT INTO orders (number, user_id)
          VALUES ($1, $2)
          ON CONFLICT (number)
          DO UPDATE SET number = EXCLUDED.number
          RETURNING user_id`,
-        order, userID).Scan(&returnedUserID)
+		order, userID).Scan(&returnedUserID)
 
-    if err != nil {
-        return 0, fmt.Errorf("failed to save order number: %w", err)
-    }
+	if err != nil {
+		return 0, fmt.Errorf("failed to save order number: %w", err)
+	}
 
-    if returnedUserID != userID {
-        return returnedUserID, ErrConflict
-    }
+	if returnedUserID != userID {
+		return returnedUserID, ErrConflict
+	}
 
-    return returnedUserID, nil
+	return returnedUserID, nil
 }
 
 func (d *DBStorage) GetOrders(userID int) ([]Order, error) {
@@ -178,7 +183,7 @@ func (d *DBStorage) GetOrders(userID int) ([]Order, error) {
 	defer cancel()
 
 	rows, err := d.pool.Query(ctx,
-		"SELECT number, status, accrual, uploaded_at FROM orders WHERE user_id = $1 ORDER BY uploaded_at ASC",
+		`SELECT number, status, accrual, uploaded_at FROM orders WHERE user_id = $1 ORDER BY uploaded_at ASC`,
 		userID)
 
 	if err != nil {
@@ -191,7 +196,7 @@ func (d *DBStorage) GetOrders(userID int) ([]Order, error) {
 	for rows.Next() {
 		var order Order
 
-		if err := rows.Scan(&order.Number, &order.Status, &order.Accrual, &order.Uploaded_at); err != nil {
+		if err := rows.Scan(&order.Number, &order.Status, &order.Accrual, &order.UploadedAt); err != nil {
 			return nil, fmt.Errorf("data scan error: %w", err)
 		}
 		orders = append(orders, order)
@@ -215,19 +220,19 @@ func (d *DBStorage) GetBalance(userID int) (Balance, error) {
 	var balance Balance
 
 	err := d.pool.QueryRow(ctx,
-		"SELECT balance, withdrawn FROM balance WHERE user_id = $1 ORDER BY uploaded_at ASC",
+		`SELECT balance, withdrawn FROM balance WHERE user_id = $1 ORDER BY uploaded_at ASC`,
 		userID).Scan(&balance.Balance, &balance.Withdrawn)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Balance{}, ErrNotFound
 		}
-		return  Balance{}, err
+		return Balance{}, err
 	}
 	return balance, nil
 }
 
-func (d *DBStorage) SaveWithdrawn(userID int, withdrawn int, balance float64) (error) {
+func (d *DBStorage) SaveWithdrawn(userID int, withdrawn int, balance float64) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -244,7 +249,66 @@ func (d *DBStorage) SaveWithdrawn(userID int, withdrawn int, balance float64) (e
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotFound
 		}
-		return  err
+		return err
 	}
 	return nil
+}
+
+func (d *DBStorage) GetWithdrawals(userID int) ([]Withdrawal, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	rows, err := d.pool.Query(
+		ctx,
+		`SELECT o.number, b.balance, b.uploaded_at
+		FROM balance as b
+		LEFT JOIN orders as o ON o.id = b.order_id
+		WHERE b.user_id = $1
+		ORDER BY b.uploaded_at ASC`,
+		userID)
+	if err != nil {
+		return nil, fmt.Errorf("query execution error: %w", err)
+	}
+
+	defer rows.Close()
+	var withdrawals []Withdrawal
+
+	for rows.Next() {
+		var withdrawal Withdrawal
+
+		if err := rows.Scan(&withdrawal.Order, &withdrawal.Sum, &withdrawal.ProcessedAt); err != nil {
+			return nil, fmt.Errorf("data scan error: %w", err)
+		}
+
+		withdrawals = append(withdrawals, withdrawal)
+	}
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows processing error: %w", err)
+	}
+
+	if len(withdrawals) == 0 {
+		return []Withdrawal{}, nil
+	}
+
+	return withdrawals, nil
+
+}
+
+func (d *DBStorage) GetOrder(orderNum string) (Order, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	var order Order
+
+	err := d.pool.QueryRow(ctx,
+		`SELECT number, status, accrual, uploaded_at FROM orders WHERE number = $1`,
+		orderNum).Scan(&order.Number, &order.Status, &order.Accrual, &order.UploadedAt)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Order{}, ErrNotFound
+		}
+		return Order{}, err
+	}
+	return order, nil
 }

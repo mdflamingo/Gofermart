@@ -7,9 +7,9 @@ import (
 )
 
 type Config struct {
-	RunAddr     string
-	LogLevel    string
-	DataBaseDSN string
+	RunAddr         string
+	LogLevel        string
+	DataBaseDSN     string
 	CookieSecretKey string
 }
 

@@ -14,8 +14,6 @@ import (
 	"go.uber.org/zap"
 )
 
-
-
 func GetBalanceHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage) {
 	userID, err := middleware.GetUserIDFromRequest(request)
 	if err != nil {
@@ -41,8 +39,8 @@ func GetBalanceHandler(response http.ResponseWriter, request *http.Request, stor
 		return
 	}
 
-	balanceResponse := models.BalanceResponse {
-		Current: balanceDB.Balance,
+	balanceResponse := models.BalanceResponse{
+		Current:   balanceDB.Balance,
 		Withdrawn: balanceDB.Withdrawn,
 	}
 
@@ -134,6 +132,49 @@ func WithdrawalsHandler(response http.ResponseWriter, request *http.Request, sto
 		return
 	}
 
-    response.Header().Set("Content-Type", "text/plain")
-    response.WriteHeader(http.StatusOK)
+	response.Header().Set("Content-Type", "text/plain")
+	response.WriteHeader(http.StatusOK)
+}
+
+func GetWithdrawalsHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage) {
+	userID, err := middleware.GetUserIDFromRequest(request)
+	if err != nil {
+		logger.Log.Warn("failed to get userID", zap.Error(err))
+		http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
+	withdrawalsDB, err := storage.GetWithdrawals(userID)
+	if err != nil {
+		logger.Log.Error("Failed to get withdrawals", zap.Error(err))
+		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	if len(withdrawalsDB) == 0 {
+		response.Header().Set("Content-Type", "application/json")
+		response.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	responses := make([]models.WithdrawnResponse, 0, len(withdrawalsDB))
+
+	for _, obj := range withdrawalsDB {
+		responses = append(responses, models.WithdrawnResponse{
+			Order:       obj.Order,
+			Sum:         obj.Sum,
+			ProcessedAt: obj.ProcessedAt,
+		})
+	}
+
+	respJSON, err := json.Marshal(responses)
+	if err != nil {
+		logger.Log.Error("Failed to marshal response to JSON", zap.Error(err))
+		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	response.Header().Set("Content-Type", "application/json")
+	response.WriteHeader(http.StatusOK)
+	response.Write(respJSON)
+
 }

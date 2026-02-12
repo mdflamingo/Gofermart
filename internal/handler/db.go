@@ -26,4 +26,3 @@ func DBHealthCheck(response http.ResponseWriter, request *http.Request, storage 
 	response.WriteHeader(http.StatusOK)
 	response.Write([]byte("OK"))
 }
-

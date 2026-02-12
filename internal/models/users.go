@@ -1,12 +1,11 @@
 package models
 
 type AuthUser struct {
-	Login string `json:"login"`
+	Login    string `json:"login"`
 	Password string `json:"password"`
 }
 
 type UserDB struct {
-	Login string
+	Login    string
 	Password string
 }
-

@@ -6,8 +6,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/mdflamingo/Gofermart/internal/config"
 	"github.com/mdflamingo/Gofermart/internal/logger"
-	"github.com/mdflamingo/Gofermart/internal/repository"
 	"github.com/mdflamingo/Gofermart/internal/middleware"
+	"github.com/mdflamingo/Gofermart/internal/repository"
 )
 
 func NewRouter(conf *config.Config, storage *repository.DBStorage) *chi.Mux {
@@ -44,6 +44,12 @@ func NewRouter(conf *config.Config, storage *repository.DBStorage) *chi.Mux {
 		r.Post("/api/user/balance/withdraw", func(w http.ResponseWriter, r *http.Request) {
 			WithdrawalsHandler(w, r, storage)
 		})
+		r.Get("/api/user/withdrawals", func(w http.ResponseWriter, r *http.Request) {
+			GetWithdrawalsHandler(w, r, storage)
+		})
+		r.Get("/api/user/{number}", rateLimit(func(w http.ResponseWriter, r *http.Request) {
+			GetOneOrderHandler(w, r, storage)
+		}))
 	})
 
 	return r

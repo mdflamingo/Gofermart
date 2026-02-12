@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/mdflamingo/Gofermart/internal/logger"
 	"github.com/mdflamingo/Gofermart/internal/middleware"
 	"github.com/mdflamingo/Gofermart/internal/models"
@@ -60,14 +61,13 @@ func UploadOrderNumHandler(response http.ResponseWriter, request *http.Request, 
 			return
 		}
 		logger.Log.Error("msg=", zap.Error(err))
-        http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-    response.Header().Set("Content-Type", "text/plain")
-    response.WriteHeader(http.StatusAccepted)
+	response.Header().Set("Content-Type", "text/plain")
+	response.WriteHeader(http.StatusAccepted)
 }
-
 
 func checkOrderNum(number string) bool {
 	sum := 0
@@ -115,15 +115,62 @@ func GetOrdersHandler(response http.ResponseWriter, request *http.Request, stora
 
 	responses := make([]models.OrdersResponse, 0, len(orders))
 	for _, order := range orders {
-		responses = append(responses, models.OrdersResponse {
-			Number: order.Number,
-			Status: order.Status,
-			Accrual: order.Accrual,
-			Uploaded_at: order.Uploaded_at,
+		responses = append(responses, models.OrdersResponse{
+			Number:     order.Number,
+			Status:     order.Status,
+			Accrual:    order.Accrual,
+			UploadedAt: order.UploadedAt,
 		})
 	}
 
 	respJSON, err := json.Marshal(responses)
+	if err != nil {
+		logger.Log.Error("Failed to marshal response to JSON", zap.Error(err))
+		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	response.Header().Set("Content-Type", "application/json")
+	response.WriteHeader(http.StatusOK)
+	response.Write(respJSON)
+}
+
+func GetOneOrderHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage) {
+	_, err := middleware.GetUserIDFromRequest(request)
+	if err != nil {
+		logger.Log.Warn("failed to get userID", zap.Error(err))
+		http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return
+	}
+
+	orderNum := chi.URLParam(request, "number")
+	orderDB, err := storage.GetOrder(orderNum)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			logger.Log.Error("The order does not exist", zap.Error(err))
+			http.Error(response, http.StatusText(http.StatusNoContent), http.StatusNoContent)
+			return
+		}
+		logger.Log.Error("Failed to get order", zap.Error(err))
+		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	if orderDB == (repository.Order{}) {
+		http.Error(response, http.StatusText(http.StatusNoContent), http.StatusNoContent)
+		return
+	}
+
+	orderResponse := models.OrderInfoResponse{
+		Number: orderDB.Number,
+		Status: orderDB.Status,
+	}
+	if orderDB.Accrual != 0 {
+		accrual := orderDB.Accrual
+		orderResponse.Accrual = &accrual
+	}
+
+	respJSON, err := json.Marshal(orderResponse)
 	if err != nil {
 		logger.Log.Error("Failed to marshal response to JSON", zap.Error(err))
 		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

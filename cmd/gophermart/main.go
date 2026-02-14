@@ -22,11 +22,12 @@ func main() {
 }
 
 func run(conf *config.Config) error {
-	if conf.CookieSecretKey == "" {
-		logger.Log.Fatal("CookieSecretKey is required")
-	}
 	if err := logger.Initialize(conf.LogLevel); err != nil {
 		return err
+	}
+
+	if conf.CookieSecretKey == "" {
+		logger.Log.Fatal("CookieSecretKey is required")
 	}
 
 	logger.Log.Info("Running server", zap.String("address", conf.RunAddr))

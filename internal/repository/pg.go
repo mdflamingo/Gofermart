@@ -117,24 +117,26 @@ func (d *DBStorage) Ping(ctx context.Context) error {
 	return d.pool.Ping(ctx)
 }
 
-func (d *DBStorage) SaveUser(user models.UserDB) error {
+func (d *DBStorage) SaveUser(user models.UserDB) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
+	var userID int
 
-	_, err := d.pool.Exec(ctx,
+	err := d.pool.QueryRow(ctx,
 		`INSERT INTO users (login, password)
-         VALUES ($1, $2)`,
-		user.Login, user.Password)
+         VALUES ($1, $2)
+		 RETURNING id`,
+		user.Login, user.Password).Scan(&userID)
 
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
-			return ErrConflict
+			return 0, ErrConflict
 		}
-		return fmt.Errorf("failed to save URL: %w", err)
+		return 0, fmt.Errorf("failed to save URL: %w", err)
 	}
 
-	return nil
+	return userID, nil
 }
 
 func (d *DBStorage) GetUser(user models.UserDB) (int, error) {

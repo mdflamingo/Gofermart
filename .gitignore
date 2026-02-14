@@ -22,3 +22,6 @@ vendor/
 .idea
 .vscode
 .env
+gophermarttest-darwin-arm64
+random-darwin-arm64
+gophermart

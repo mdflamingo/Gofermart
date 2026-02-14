@@ -20,25 +20,43 @@ var ErrEmptyRequiredField = errors.New("login and password cannot be empty")
 var ErrJSONFormat = errors.New("invalid JSON format")
 var ErrRequestRead = errors.New("failed to read request body")
 
-func AuthorizationHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage) {
-	userDB, err := parseBody(response, request)
+func AuthorizationHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage, secretKey string) {
+    userDB, err := parseBody(response, request)
+    if err != nil {
+        http.Error(response, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+	userID, err := storage.SaveUser(userDB)
+    if err != nil {
+        logger.Log.Error("failed to save user", zap.Error(err))
+
+        if errors.Is(err, repository.ErrConflict) {
+            http.Error(response, "User already exists", http.StatusConflict)
+            return
+        }
+
+        http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+        return
+    }
+
+	jwtToken, err := createJWT(userID, secretKey)
 	if err != nil {
-		http.Error(response, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	err = storage.SaveUser(userDB)
-	if err != nil {
-		logger.Log.Error("failed to save user", zap.Error(err))
-
-		if errors.Is(err, repository.ErrConflict) {
-			http.Error(response, "User already exists", http.StatusConflict)
-			return
-		}
-
+		logger.Log.Error("failed to create JWT token", zap.Error(err))
 		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
+
+	http.SetCookie(response, &http.Cookie{
+		Name:     "token",
+		Value:    jwtToken,
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   30 * 24 * 3600,
+		Path:     "/",
+		Expires:  time.Now().Add(30 * 24 * time.Hour),
+	})
 
 	response.Header().Set("Content-Type", "application/json")
 	response.WriteHeader(http.StatusOK)

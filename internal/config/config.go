@@ -23,9 +23,9 @@ func ParseFlags() *Config {
 
 	flag.Parse()
 
-	cfg.RunAddr = getEnvOrDefault("SERVER_ADDRESS", *RunAddr)
+	cfg.RunAddr = getEnvOrDefault("RUN_ADDRESS", *RunAddr)
 	cfg.LogLevel = strings.ToUpper(getEnvOrDefault("LOG_LEVEL", *logLevel))
-	cfg.DataBaseDSN = getEnvOrDefault("DATABASE_DSN", *dataBaseDSN)
+	cfg.DataBaseDSN = getEnvOrDefault("DATABASE_URI", *dataBaseDSN)
 	cfg.CookieSecretKey = getEnvOrDefault("COOKIE_SECRET_KEY", *cookieSecretKey)
 
 	return cfg

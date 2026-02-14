@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"log"
 	"net/http"
 
@@ -42,16 +43,17 @@ func run(conf *config.Config) error {
 }
 
 func initStorage(conf *config.Config) (*repository.DBStorage, error) {
-	if conf.DataBaseDSN != "" {
-		logger.Log.Info("Attempting to use database storage", zap.String("dsn", conf.DataBaseDSN))
-		if storage, err := repository.NewDBStorage(conf.DataBaseDSN); err == nil {
-			logger.Log.Info("Successfully initialized database storage")
-			return storage, nil
-		} else {
-			logger.Log.Warn("Failed to initialize database storage", zap.Error(err))
-			return nil, err
-		}
+	if conf.DataBaseDSN == "" {
+		return nil, errors.New("DATABASE_DSN is required")
 	}
-	logger.Log.Warn("No database DSN provided, storage not initialized")
-	return nil, nil
+
+	logger.Log.Info("Attempting to use database storage", zap.String("dsn", conf.DataBaseDSN))
+	storage, err := repository.NewDBStorage(conf.DataBaseDSN)
+	if err != nil {
+		logger.Log.Warn("Failed to initialize database storage", zap.Error(err))
+		return nil, err
+	}
+
+	logger.Log.Info("Successfully initialized database storage")
+	return storage, nil
 }

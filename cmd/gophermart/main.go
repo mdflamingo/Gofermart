@@ -44,7 +44,6 @@ func run(conf *config.Config) error {
 	logger.Log.Info("Accrual URL", zap.String("url", accrualURL))
 
 	handler.InitAccrualClient(accrualURL)
-	handler.InitAccrualClient(accrualURL)
 
 	go handler.StartAccrualWorker(context.Background(), storage)
 

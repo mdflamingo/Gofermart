@@ -11,6 +11,8 @@ type Config struct {
 	LogLevel        string
 	DataBaseDSN     string
 	CookieSecretKey string
+	AccrualHost     string
+	AccrualPort     string
 }
 
 func ParseFlags() *Config {
@@ -20,6 +22,8 @@ func ParseFlags() *Config {
 	logLevel := flag.String("l", "INFO", "log level")
 	dataBaseDSN := flag.String("d", "", "connect to postgres")
 	cookieSecretKey := flag.String("s", "default-secret-key", "you secret key for cookie")
+	accrualHost := flag.String("accrual-host", "localhost", "accrual system host")
+	accrualPort := flag.String("accrual-port", "8081", "accrual system port")
 
 	flag.Parse()
 
@@ -27,6 +31,8 @@ func ParseFlags() *Config {
 	cfg.LogLevel = strings.ToUpper(getEnvOrDefault("LOG_LEVEL", *logLevel))
 	cfg.DataBaseDSN = getEnvOrDefault("DATABASE_URI", *dataBaseDSN)
 	cfg.CookieSecretKey = getEnvOrDefault("COOKIE_SECRET_KEY", *cookieSecretKey)
+	cfg.AccrualHost = getEnvOrDefault("ACCRUAL_SYSTEM_ADDRESS", *accrualHost)
+	cfg.AccrualPort = getEnvOrDefault("ACCRUAL_SYSTEM_PORT", *accrualPort)
 
 	return cfg
 }

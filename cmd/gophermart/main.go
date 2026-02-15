@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -39,7 +40,9 @@ func run(conf *config.Config) error {
 	}
 	defer storage.Close()
 
-	handler.InitAccrualClient("http://localhost:8081")
+	accrualURL := fmt.Sprintf("http://%s:%s", conf.AccrualHost, conf.AccrualPort)
+	handler.InitAccrualClient(accrualURL)
+	handler.InitAccrualClient(accrualURL)
 
 	ctx := context.Background()
 	go handler.StartAccrualWorker(ctx, storage)

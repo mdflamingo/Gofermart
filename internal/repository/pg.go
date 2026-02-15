@@ -257,7 +257,7 @@ func (d *DBStorage) SaveWithdrawal(userID int, order string, sum float64) error 
 	}
 
 	_, err = d.pool.Exec(ctx,
-		`INSERT INTO withdrawals (user_id, order, sum) VALUES ($1, $2, $3)`,
+		`INSERT INTO withdrawals (user_id, "order", sum) VALUES ($1, $2, $3)`,
 		userID, order, sum)
 	return err
 }

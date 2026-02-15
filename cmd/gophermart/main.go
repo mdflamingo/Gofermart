@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/http"
@@ -37,6 +38,11 @@ func run(conf *config.Config) error {
 		logger.Log.Fatal("Failed to create storage", zap.Error(err))
 	}
 	defer storage.Close()
+
+	handler.InitAccrualClient("http://localhost:8081")
+
+	ctx := context.Background()
+	go handler.StartAccrualWorker(ctx, storage)
 
 	r := handler.NewRouter(conf, storage)
 

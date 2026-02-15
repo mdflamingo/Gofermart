@@ -39,7 +39,10 @@ func AuthorizationHandler(response http.ResponseWriter, request *http.Request, s
         http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
         return
     }
-
+	err = storage.InitBalance(userID)
+	if err != nil {
+        logger.Log.Error("failed to init user balance", zap.Error(err))
+	}
 	jwtToken, err := createJWT(userID, secretKey)
 	if err != nil {
 		logger.Log.Error("failed to create JWT token", zap.Error(err))

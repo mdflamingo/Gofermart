@@ -5,4 +5,4 @@ CREATE TABLE balance (
     withdrawn REAL DEFAULT 0 NOT NULL
 );
 
-CREATE INDEX idx_balances_user_id ON balances(user_id);
+CREATE INDEX idx_balances_user_id ON balance(user_id);

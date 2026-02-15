@@ -1,10 +1,15 @@
-CREATE TYPE orderstatus AS ENUM ('NEW', 'PROCESSING', 'INVALID', 'PROCESSED');
+DO $$
+BEGIN
+    CREATE TYPE orderstatus AS ENUM ('NEW', 'PROCESSING', 'INVALID', 'PROCESSED');
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE orders (
     id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
     number VARCHAR(255) NOT NULL UNIQUE,
     user_id INT NOT NULL REFERENCES users(id),
-    status orderstatus DEFAULT 'NEW' NOT NULL,,
+    status orderstatus DEFAULT 'NEW' NOT NULL,
     accrual REAL DEFAULT 0 NOT NULL,
     uploaded_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );

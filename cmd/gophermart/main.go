@@ -40,8 +40,7 @@ func run(conf *config.Config) error {
 	}
 	defer storage.Close()
 
-	accrualURL := fmt.Sprintf("http://%s:%s", conf.AccrualHost, conf.AccrualPort)
-	logger.Log.Info("Accrual URL", zap.String("url", accrualURL))
+	accrualURL := conf.AccrualHost
 
 	handler.InitAccrualClient(accrualURL)
 

@@ -9,27 +9,17 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/go-resty/resty/v2"
 	"github.com/mdflamingo/Gofermart/internal/logger"
 	"github.com/mdflamingo/Gofermart/internal/middleware"
 	"github.com/mdflamingo/Gofermart/internal/models"
 	"github.com/mdflamingo/Gofermart/internal/repository"
 	"go.uber.org/zap"
 )
-var accrualClient *resty.Client
-
-func InitAccrualClient(accrualURL string) {
-	accrualClient = resty.New().SetBaseURL(accrualURL)
-}
 
 func UploadOrderNumHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage) {
 	if request.Header.Get("Content-Type") != "text/plain" {
 		logger.Log.Warn("invalid content type", zap.String("content_type", request.Header.Get("Content-Type")))
-		http.Error(
-			response,
-			"Invalid Content-Type",
-			http.StatusUnsupportedMediaType,
-		)
+		http.Error(response, "Invalid Content-Type", http.StatusUnsupportedMediaType)
 		return
 	}
 
@@ -39,26 +29,27 @@ func UploadOrderNumHandler(response http.ResponseWriter, request *http.Request, 
 		http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
-	body, err := io.ReadAll(request.Body)
 
+	body, err := io.ReadAll(request.Body)
 	if err != nil {
 		logger.Log.Error("failed to read request body", zap.Error(err))
 		http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
+
 	orderNum := strings.TrimSpace(string(body))
 	if !checkOrderNum(orderNum) {
-		logger.Log.Error("Incorrect order number format", zap.Error(err))
+		logger.Log.Error("Incorrect order number format")
 		http.Error(response, "Incorrect order number format", http.StatusUnprocessableEntity)
 		return
 	}
 
 	userDB, err := storage.SaveOrder(orderNum, userID)
-
 	if err != nil {
 		if errors.Is(err, repository.ErrConflict) && userDB == userID {
-			logger.Log.Error("The order number has already been uploaded by this user", zap.Error(err))
-			http.Error(response, "The order number has already been uploaded by this user", http.StatusOK)
+			logger.Log.Info("The order number has already been uploaded by this user", zap.String("order", orderNum))
+			response.Header().Set("Content-Type", "text/plain")
+			response.WriteHeader(http.StatusOK)
 			return
 		}
 		if errors.Is(err, repository.ErrConflict) && userDB != userID {
@@ -66,7 +57,7 @@ func UploadOrderNumHandler(response http.ResponseWriter, request *http.Request, 
 			http.Error(response, "The order number has already been uploaded by another user", http.StatusConflict)
 			return
 		}
-		logger.Log.Error("msg=", zap.Error(err))
+		logger.Log.Error("failed to save order", zap.Error(err))
 		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
@@ -119,6 +110,7 @@ func GetOrdersHandler(response http.ResponseWriter, request *http.Request, stora
 		http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
+
 	orders, err := storage.GetOrders(userID)
 	if err != nil {
 		logger.Log.Error("Failed to get orders", zap.Error(err))
@@ -137,7 +129,7 @@ func GetOrdersHandler(response http.ResponseWriter, request *http.Request, stora
 		responses = append(responses, models.OrdersResponse{
 			Number:     order.Number,
 			Status:     order.Status,
-			Accrual:    int(order.Accrual),
+			Accrual:    order.Accrual,
 			UploadedAt: order.UploadedAt,
 		})
 	}

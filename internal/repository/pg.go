@@ -166,25 +166,20 @@ func (d *DBStorage) SaveOrder(order string, userID int) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	var returnedUserID int
+	var existingUserID int
+	err := d.pool.QueryRow(ctx, `SELECT user_id FROM orders WHERE number = $1`, order).Scan(&existingUserID)
+	if err == nil {
+		return existingUserID, ErrConflict
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("failed to check order existence: %w", err)
+	}
 
-	err := d.pool.QueryRow(ctx,
-		`INSERT INTO orders (number, user_id)
-         VALUES ($1, $2)
-         ON CONFLICT (number)
-         DO UPDATE SET number = EXCLUDED.number
-         RETURNING user_id`,
-		order, userID).Scan(&returnedUserID)
-
+	_, err = d.pool.Exec(ctx, `INSERT INTO orders (number, user_id) VALUES ($1, $2)`, order, userID)
 	if err != nil {
 		return 0, fmt.Errorf("failed to save order number: %w", err)
 	}
 
-	if returnedUserID != userID {
-		return returnedUserID, ErrConflict
-	}
-
-	return returnedUserID, nil
+	return userID, nil
 }
 
 func (d *DBStorage) GetOrders(userID int) ([]Order, error) {
@@ -250,7 +245,7 @@ func (d *DBStorage) SaveWithdrawal(userID int, order string, sum float64) error 
 	}
 
 	_, err = d.pool.Exec(ctx,
-		`UPDATE balances SET current = current - $1, withdrawn = withdrawn + $1 WHERE user_id = $2`,
+		`UPDATE balance SET current = current - $1, withdrawn = withdrawn + $1 WHERE user_id = $2`,
 		sum, userID)
 	if err != nil {
 		return err
@@ -267,7 +262,7 @@ func (d *DBStorage) GetWithdrawals(userID int) ([]Withdrawal, error) {
 	defer cancel()
 
 	rows, err := d.pool.Query(ctx,
-		`SELECT order, sum, processed_at FROM withdrawals WHERE user_id = $1 ORDER BY processed_at DESC`,
+		`SELECT "order", sum, processed_at FROM withdrawals WHERE user_id = $1 ORDER BY processed_at DESC`,
 		userID)
 	if err != nil {
 		return nil, fmt.Errorf("query execution error: %w", err)
@@ -313,7 +308,7 @@ func (d *DBStorage) InitBalance(userID int) error {
 	defer cancel()
 
 	_, err := d.pool.Exec(ctx,
-		`INSERT INTO balances (user_id, current, withdrawn) VALUES ($1, 0, 0) ON CONFLICT (user_id) DO NOTHING`,
+		`INSERT INTO balance (user_id, current, withdrawn) VALUES ($1, 0, 0) ON CONFLICT (user_id) DO NOTHING`,
 		userID)
 	return err
 }
@@ -355,7 +350,7 @@ func (d *DBStorage) UpdateBalance(userID int, amount float64) error {
 	defer cancel()
 
 	_, err := d.pool.Exec(ctx,
-		`UPDATE balances SET current = current + $1 WHERE user_id = $2`,
+		`UPDATE balance SET current = current + $1 WHERE user_id = $2`,
 		amount, userID)
 	return err
 }

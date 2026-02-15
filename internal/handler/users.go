@@ -21,27 +21,27 @@ var ErrJSONFormat = errors.New("invalid JSON format")
 var ErrRequestRead = errors.New("failed to read request body")
 
 func AuthorizationHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage, secretKey string) {
-    userDB, err := parseBody(response, request)
-    if err != nil {
-        http.Error(response, err.Error(), http.StatusBadRequest)
-        return
-    }
+	userDB, err := parseBody(response, request)
+	if err != nil {
+		http.Error(response, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	userID, err := storage.SaveUser(userDB)
-    if err != nil {
-        logger.Log.Error("failed to save user", zap.Error(err))
+	if err != nil {
+		logger.Log.Error("failed to save user", zap.Error(err))
 
-        if errors.Is(err, repository.ErrConflict) {
-            http.Error(response, "User already exists", http.StatusConflict)
-            return
-        }
+		if errors.Is(err, repository.ErrConflict) {
+			http.Error(response, "User already exists", http.StatusConflict)
+			return
+		}
 
-        http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-        return
-    }
+		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
 	err = storage.InitBalance(userID)
 	if err != nil {
-        logger.Log.Error("failed to init user balance", zap.Error(err))
+		logger.Log.Error("failed to init user balance", zap.Error(err))
 	}
 	jwtToken, err := createJWT(userID, secretKey)
 	if err != nil {

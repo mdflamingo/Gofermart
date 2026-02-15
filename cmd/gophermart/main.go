@@ -6,10 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
-	"time"
 
 	"github.com/mdflamingo/Gofermart/internal/config"
 	"github.com/mdflamingo/Gofermart/internal/handler"
@@ -50,44 +46,11 @@ func run(conf *config.Config) error {
 	handler.InitAccrualClient(accrualURL)
 	handler.InitAccrualClient(accrualURL)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	go handler.StartAccrualWorker(ctx, storage)
-
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		<-sigChan
-		logger.Log.Info("Shutting down server")
-		cancel()
-	}()
+	go handler.StartAccrualWorker(context.Background(), storage)
 
 	r := handler.NewRouter(conf, storage)
 
-	server := &http.Server{
-		Addr:    conf.RunAddr,
-		Handler: r,
-	}
-
-	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logger.Log.Fatal("Failed to start server", zap.Error(err))
-		}
-	}()
-
-	<-ctx.Done()
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer shutdownCancel()
-
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Log.Error("Server shutdown failed", zap.Error(err))
-		return err
-	}
-
-	logger.Log.Info("Server stopped")
-	return nil
+	return http.ListenAndServe(conf.RunAddr, r)
 }
 
 func initStorage(conf *config.Config) (*repository.DBStorage, error) {

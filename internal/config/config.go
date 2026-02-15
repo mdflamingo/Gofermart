@@ -22,7 +22,7 @@ func ParseFlags() *Config {
 	logLevel := flag.String("l", "INFO", "log level")
 	dataBaseDSN := flag.String("d", "", "connect to postgres")
 	cookieSecretKey := flag.String("s", "default-secret-key", "you secret key for cookie")
-	accrualHost := flag.String("accrual-host", "localhost", "accrual system host")
+	accrualHost := flag.String("accrual-host", "http://localhost", "accrual system host")
 	accrualPort := flag.String("accrual-port", "8081", "accrual system port")
 
 	flag.Parse()

@@ -1,0 +1,7 @@
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    login VARCHAR(255) NOT NULL UNIQUE,
+    password VARCHAR NOT NULL
+);
+
+CREATE INDEX idx_users_login ON users(login);

@@ -18,23 +18,30 @@ import (
 
 var ErrConflict = errors.New("conflict: duplicate entry")
 var ErrNotFound = errors.New("obj not found")
+var ErrInsufficientFunds = errors.New("insufficient funds")
 
 type Order struct {
 	Number     string
 	Status     string
-	Accrual    int
+	Accrual    float64
 	UploadedAt time.Time
 }
 
 type Balance struct {
-	Balance   float64
-	Withdrawn int
+	Current   float64
+	Withdrawn float64
 }
 
 type Withdrawal struct {
 	Order       string
-	Sum         int
+	Sum         float64
 	ProcessedAt time.Time
+}
+
+type OrderToUpdate struct {
+	ID     int
+	Number string
+	UserID int
 }
 
 type DBStorage struct {
@@ -133,7 +140,7 @@ func (d *DBStorage) SaveUser(user models.UserDB) (int, error) {
 		if errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
 			return 0, ErrConflict
 		}
-		return 0, fmt.Errorf("failed to save URL: %w", err)
+		return 0, fmt.Errorf("failed to save user: %w", err)
 	}
 
 	return userID, nil
@@ -185,7 +192,7 @@ func (d *DBStorage) GetOrders(userID int) ([]Order, error) {
 	defer cancel()
 
 	rows, err := d.pool.Query(ctx,
-		`SELECT number, status, accrual, uploaded_at FROM orders WHERE user_id = $1 ORDER BY uploaded_at ASC`,
+		`SELECT number, status, accrual, uploaded_at FROM orders WHERE user_id = $1 ORDER BY uploaded_at DESC`,
 		userID)
 
 	if err != nil {
@@ -208,10 +215,6 @@ func (d *DBStorage) GetOrders(userID int) ([]Order, error) {
 		return nil, fmt.Errorf("rows processing error: %w", err)
 	}
 
-	if len(orders) == 0 {
-		return []Order{}, nil
-	}
-
 	return orders, nil
 }
 
@@ -222,8 +225,8 @@ func (d *DBStorage) GetBalance(userID int) (Balance, error) {
 	var balance Balance
 
 	err := d.pool.QueryRow(ctx,
-		`SELECT balance, withdrawn FROM balance WHERE user_id = $1 ORDER BY uploaded_at ASC`,
-		userID).Scan(&balance.Balance, &balance.Withdrawn)
+		`SELECT current, withdrawn FROM balance WHERE user_id = $1`,
+		userID).Scan(&balance.Current, &balance.Withdrawn)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -234,66 +237,56 @@ func (d *DBStorage) GetBalance(userID int) (Balance, error) {
 	return balance, nil
 }
 
-func (d *DBStorage) SaveWithdrawn(userID int, withdrawn int, balance float64) error {
+func (d *DBStorage) SaveWithdrawal(userID int, order string, sum float64) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	_, err := d.pool.Exec(ctx,
-		`INSERT INTO balance (user_id, balance, withdrawn)
-		 VALUES ($1, $2, $3)
-		 ON CONFLICT (user_id) DO UPDATE
-		 SET balance = EXCLUDED.balance,
-		     withdrawn = EXCLUDED.withdrawn,
-		     uploaded_at = NOW()`,
-		userID, balance, withdrawn)
-
+	balance, err := d.GetBalance(userID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
-		}
 		return err
 	}
-	return nil
+	if balance.Current < sum {
+		return ErrInsufficientFunds
+	}
+
+	_, err = d.pool.Exec(ctx,
+		`UPDATE balances SET current = current - $1, withdrawn = withdrawn + $1 WHERE user_id = $2`,
+		sum, userID)
+	if err != nil {
+		return err
+	}
+
+	_, err = d.pool.Exec(ctx,
+		`INSERT INTO withdrawals (user_id, order, sum) VALUES ($1, $2, $3)`,
+		userID, order, sum)
+	return err
 }
 
 func (d *DBStorage) GetWithdrawals(userID int) ([]Withdrawal, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	rows, err := d.pool.Query(
-		ctx,
-		`SELECT o.number, b.balance, b.uploaded_at
-		FROM balance as b
-		LEFT JOIN orders as o ON o.id = b.order_id
-		WHERE b.user_id = $1
-		ORDER BY b.uploaded_at ASC`,
+	rows, err := d.pool.Query(ctx,
+		`SELECT order, sum, processed_at FROM withdrawals WHERE user_id = $1 ORDER BY processed_at DESC`,
 		userID)
 	if err != nil {
 		return nil, fmt.Errorf("query execution error: %w", err)
 	}
-
 	defer rows.Close()
-	var withdrawals []Withdrawal
 
+	var withdrawals []Withdrawal
 	for rows.Next() {
 		var withdrawal Withdrawal
-
 		if err := rows.Scan(&withdrawal.Order, &withdrawal.Sum, &withdrawal.ProcessedAt); err != nil {
 			return nil, fmt.Errorf("data scan error: %w", err)
 		}
-
 		withdrawals = append(withdrawals, withdrawal)
 	}
 	if err = rows.Err(); err != nil {
 		return nil, fmt.Errorf("rows processing error: %w", err)
 	}
 
-	if len(withdrawals) == 0 {
-		return []Withdrawal{}, nil
-	}
-
 	return withdrawals, nil
-
 }
 
 func (d *DBStorage) GetOrder(orderNum string) (Order, error) {
@@ -313,4 +306,56 @@ func (d *DBStorage) GetOrder(orderNum string) (Order, error) {
 		return Order{}, err
 	}
 	return order, nil
+}
+
+func (d *DBStorage) InitBalance(userID int) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_, err := d.pool.Exec(ctx,
+		`INSERT INTO balances (user_id, current, withdrawn) VALUES ($1, 0, 0) ON CONFLICT (user_id) DO NOTHING`,
+		userID)
+	return err
+}
+
+func (d *DBStorage) GetOrdersToUpdate() ([]OrderToUpdate, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	rows, err := d.pool.Query(ctx,
+		`SELECT id, number, user_id FROM orders WHERE status IN ('NEW', 'PROCESSING')`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var orders []OrderToUpdate
+	for rows.Next() {
+		var order OrderToUpdate
+		if err := rows.Scan(&order.ID, &order.Number, &order.UserID); err != nil {
+			return nil, err
+		}
+		orders = append(orders, order)
+	}
+	return orders, rows.Err()
+}
+
+func (d *DBStorage) UpdateOrderStatus(orderID int, status string, accrual float64) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_, err := d.pool.Exec(ctx,
+		`UPDATE orders SET status = $1, accrual = $2 WHERE id = $3`,
+		status, accrual, orderID)
+	return err
+}
+
+func (d *DBStorage) UpdateBalance(userID int, amount float64) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	_, err := d.pool.Exec(ctx,
+		`UPDATE balances SET current = current + $1 WHERE user_id = $2`,
+		amount, userID)
+	return err
 }

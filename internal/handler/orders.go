@@ -9,12 +9,18 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-resty/resty/v2"
 	"github.com/mdflamingo/Gofermart/internal/logger"
 	"github.com/mdflamingo/Gofermart/internal/middleware"
 	"github.com/mdflamingo/Gofermart/internal/models"
 	"github.com/mdflamingo/Gofermart/internal/repository"
 	"go.uber.org/zap"
 )
+var accrualClient *resty.Client
+
+func InitAccrualClient(accrualURL string) {
+	accrualClient = resty.New().SetBaseURL(accrualURL)
+}
 
 func UploadOrderNumHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage) {
 	if request.Header.Get("Content-Type") != "text/plain" {
@@ -63,6 +69,19 @@ func UploadOrderNumHandler(response http.ResponseWriter, request *http.Request, 
 		logger.Log.Error("msg=", zap.Error(err))
 		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
+	}
+
+	if accrualClient != nil {
+		orderData := map[string]string{"order": orderNum}
+		resp, err := accrualClient.R().
+			SetHeader("Content-Type", "application/json").
+			SetBody(orderData).
+			Post("/api/orders")
+		if err != nil || resp.StatusCode() != http.StatusAccepted {
+			logger.Log.Warn("Failed to send order to accrual", zap.Error(err), zap.Int("status", resp.StatusCode()))
+		} else {
+			logger.Log.Info("Order sent to accrual", zap.String("order", orderNum))
+		}
 	}
 
 	response.Header().Set("Content-Type", "text/plain")
@@ -118,7 +137,7 @@ func GetOrdersHandler(response http.ResponseWriter, request *http.Request, stora
 		responses = append(responses, models.OrdersResponse{
 			Number:     order.Number,
 			Status:     order.Status,
-			Accrual:    order.Accrual,
+			Accrual:    int(order.Accrual),
 			UploadedAt: order.UploadedAt,
 		})
 	}

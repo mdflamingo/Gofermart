@@ -12,5 +12,5 @@ type OrdersResponse struct {
 type OrderInfoResponse struct {
 	Number  string `json:"order"`
 	Status  string `json:"status"`
-	Accrual *int   `json:"accrual,omitempty"`
+	Accrual *float64   `json:"accrual,omitempty"`
 }

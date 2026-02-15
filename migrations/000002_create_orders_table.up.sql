@@ -1,9 +1,14 @@
+CREATE TYPE orderstatus AS ENUM ('NEW', 'PROCESSING', 'INVALID', 'PROCESSED');
+
 CREATE TABLE orders (
     id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-    number VARCHAR NOT NULL UNIQUE,
-    user_id BIGINT NOT NULL,
-    uploaded_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    FOREIGN KEY (user_id) REFERENCES users(id)
+    number VARCHAR(255) NOT NULL UNIQUE,
+    user_id INT NOT NULL REFERENCES users(id),
+    status orderstatus DEFAULT 'NEW' NOT NULL,,
+    accrual REAL DEFAULT 0 NOT NULL,
+    uploaded_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
 );
 
-CREATE INDEX idx_orders_order_num ON orders(number);
+CREATE INDEX idx_orders_number ON orders(number);
+CREATE INDEX idx_orders_user_id ON orders(user_id);
+CREATE INDEX idx_orders_status ON orders(status);

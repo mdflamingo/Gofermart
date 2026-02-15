@@ -34,13 +34,12 @@ func GetBalanceHandler(response http.ResponseWriter, request *http.Request, stor
 	}
 
 	if balanceDB == (repository.Balance{}) {
-		response.Header().Set("Content-Type", "application/json")
-		response.WriteHeader(http.StatusNoContent)
+		http.Error(response, "User not found", http.StatusNotFound)
 		return
 	}
 
 	balanceResponse := models.BalanceResponse{
-		Current:   balanceDB.Balance,
+		Current:   balanceDB.Current,
 		Withdrawn: balanceDB.Withdrawn,
 	}
 
@@ -59,11 +58,7 @@ func GetBalanceHandler(response http.ResponseWriter, request *http.Request, stor
 func WithdrawalsHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage) {
 	if request.Header.Get("Content-Type") != "application/json" {
 		logger.Log.Warn("invalid content type", zap.String("content_type", request.Header.Get("Content-Type")))
-		http.Error(
-			response,
-			"Invalid Content-Type",
-			http.StatusUnsupportedMediaType,
-		)
+		http.Error(response, "Invalid Content-Type", http.StatusUnsupportedMediaType)
 		return
 	}
 
@@ -92,9 +87,9 @@ func WithdrawalsHandler(response http.ResponseWriter, request *http.Request, sto
 		return
 	}
 
-	orderNum := strings.TrimSpace(string(withdraw.Order))
+	orderNum := strings.TrimSpace(withdraw.Order)
 	if !checkOrderNum(orderNum) {
-		logger.Log.Error("Incorrect order number format", zap.Error(err))
+		logger.Log.Error("Incorrect order number format")
 		http.Error(response, "Incorrect order number format", http.StatusUnprocessableEntity)
 		return
 	}
@@ -112,22 +107,23 @@ func WithdrawalsHandler(response http.ResponseWriter, request *http.Request, sto
 	}
 
 	if balanceDB == (repository.Balance{}) {
-		response.Header().Set("Content-Type", "application/json")
-		response.WriteHeader(http.StatusNoContent)
+		http.Error(response, "User not found", http.StatusNotFound)
 		return
 	}
 
-	if withdraw.Sum > int(balanceDB.Balance) {
-		logger.Log.Error("there are insufficient funds in the account", zap.Error(err))
+	if float64(withdraw.Sum) > balanceDB.Current {
+		logger.Log.Error("there are insufficient funds in the account")
 		http.Error(response, "Insufficient funds", http.StatusPaymentRequired)
 		return
 	}
-	updatedBalance := balanceDB.Balance - float64(withdraw.Sum)
-	updatedWithdraw := balanceDB.Withdrawn + withdraw.Sum
 
-	err = storage.SaveWithdrawn(userID, updatedWithdraw, updatedBalance)
+	err = storage.SaveWithdrawal(userID, orderNum, float64(withdraw.Sum))
 	if err != nil {
-		logger.Log.Error("Failed to update balance", zap.Error(err))
+		if errors.Is(err, repository.ErrInsufficientFunds) {
+			http.Error(response, "Insufficient funds", http.StatusPaymentRequired)
+			return
+		}
+		logger.Log.Error("Failed to save withdrawal", zap.Error(err))
 		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
@@ -176,5 +172,4 @@ func GetWithdrawalsHandler(response http.ResponseWriter, request *http.Request, 
 	response.Header().Set("Content-Type", "application/json")
 	response.WriteHeader(http.StatusOK)
 	response.Write(respJSON)
-
 }

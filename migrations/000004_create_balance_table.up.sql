@@ -1,10 +1,8 @@
 CREATE TABLE balance (
-    id INTEGER PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
-    balance REAL NOT NULL DEFAULT 0,
-    withdrawn INTEGER NOT NULL DEFAULT 0,
-    user_id BIGINT NOT NULL UNIQUE,
-    order_id BIGINT NOT NULL,
-    uploaded_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    FOREIGN KEY (order_id) REFERENCES orders(id)
+    id SERIAL PRIMARY KEY,
+    user_id INT NOT NULL UNIQUE REFERENCES users(id),
+    current REAL DEFAULT 0 NOT NULL,
+    withdrawn REAL DEFAULT 0 NOT NULL
 );
+
+CREATE INDEX idx_balances_user_id ON balances(user_id);

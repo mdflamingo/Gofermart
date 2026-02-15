@@ -2,7 +2,7 @@ package models
 
 type BalanceResponse struct {
 	Current   float64 `json:"current"`
-	Withdrawn int     `json:"withdrawn"`
+	Withdrawn float64     `json:"withdrawn"`
 }
 
 type WithdrawnRequest struct {

@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -15,7 +14,7 @@ import (
 )
 
 func AuthorizationHandler(w http.ResponseWriter, r *http.Request, svc *service.UserService, secretKey string) {
-	_, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		logger.Log.Error("failed to read request body", zap.Error(err))
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
@@ -23,8 +22,7 @@ func AuthorizationHandler(w http.ResponseWriter, r *http.Request, svc *service.U
 	}
 
 	var req models.AuthUser
-	var buf bytes.Buffer
-	if err = json.Unmarshal(buf.Bytes(), &req); err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
 		logger.Log.Warn("invalid request body", zap.Error(err))
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
@@ -67,7 +65,7 @@ func handleRegistrationError(w http.ResponseWriter, err error, login string) {
 }
 
 func AuthenticationHandler(w http.ResponseWriter, r *http.Request, svc *service.UserService, secretKey string) {
-	_, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		logger.Log.Error("failed to read request body", zap.Error(err))
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
@@ -75,8 +73,7 @@ func AuthenticationHandler(w http.ResponseWriter, r *http.Request, svc *service.
 	}
 
 	var req models.AuthUser
-	var buf bytes.Buffer
-	if err = json.Unmarshal(buf.Bytes(), &req); err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
 		logger.Log.Warn("invalid request body", zap.Error(err))
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return

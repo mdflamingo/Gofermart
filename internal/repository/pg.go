@@ -10,6 +10,7 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -233,28 +234,51 @@ func (d *DBStorage) GetBalance(userID int) (Balance, error) {
 }
 
 func (d *DBStorage) SaveWithdrawal(userID int, order string, sum float64) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
+    ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+    defer cancel()
 
-	balance, err := d.GetBalance(userID)
-	if err != nil {
-		return err
-	}
-	if balance.Current < sum {
-		return ErrInsufficientFunds
-	}
+    tx, err := d.pool.Begin(ctx)
+    if err != nil {
+        return err
+    }
+    defer tx.Rollback(ctx)
 
-	_, err = d.pool.Exec(ctx,
-		`UPDATE balance SET current = current - $1, withdrawn = withdrawn + $1 WHERE user_id = $2`,
-		sum, userID)
-	if err != nil {
-		return err
-	}
+    var currentBalance float64
+    err = tx.QueryRow(ctx,
+        `SELECT current FROM balance WHERE user_id = $1 FOR UPDATE`,
+        userID,
+    ).Scan(&currentBalance)
 
-	_, err = d.pool.Exec(ctx,
-		`INSERT INTO withdrawals (user_id, "order", sum) VALUES ($1, $2, $3)`,
-		userID, order, sum)
-	return err
+    if err != nil {
+        if err == pgx.ErrNoRows {
+            return ErrNotFound
+        }
+        return err
+    }
+
+    if currentBalance < sum {
+        return ErrInsufficientFunds
+    }
+
+    commandTag, err := tx.Exec(ctx,
+        `UPDATE balance SET current = current - $1, withdrawn = withdrawn + $1 WHERE user_id = $2`,
+        sum, userID)
+    if err != nil {
+        return err
+    }
+
+    if commandTag.RowsAffected() == 0 {
+        return ErrNotFound
+    }
+
+    _, err = tx.Exec(ctx,
+        `INSERT INTO withdrawals (user_id, "order", sum, processed_at) VALUES ($1, $2, $3, NOW())`,
+        userID, order, sum)
+    if err != nil {
+        return err
+    }
+
+    return tx.Commit(ctx)
 }
 
 func (d *DBStorage) GetWithdrawals(userID int) ([]Withdrawal, error) {

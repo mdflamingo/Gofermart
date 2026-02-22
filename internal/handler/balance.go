@@ -85,7 +85,6 @@ func WithdrawHandler(w http.ResponseWriter, r *http.Request, svc *service.Balanc
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/plain")
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -121,9 +120,11 @@ func GetWithdrawalsHandler(w http.ResponseWriter, r *http.Request, svc *service.
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
 	if len(withdrawals) == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNoContent)
+		w.Write([]byte("[]"))
 		return
 	}
 
@@ -134,7 +135,5 @@ func GetWithdrawalsHandler(w http.ResponseWriter, r *http.Request, svc *service.
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
 	w.Write(respJSON)
 }

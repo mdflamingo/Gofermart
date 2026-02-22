@@ -13,6 +13,27 @@ var (
 	window        = time.Minute
 )
 
+
+func init() {
+	go cleanupStaleEntries()
+}
+
+func cleanupStaleEntries() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		mu.Lock()
+		now := time.Now()
+		for ip, times := range requestCounts {
+			if len(times) == 0 || now.Sub(times[len(times)-1]) > window {
+				delete(requestCounts, ip)
+			}
+		}
+		mu.Unlock()
+	}
+}
+
 func rateLimit(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ip := r.RemoteAddr

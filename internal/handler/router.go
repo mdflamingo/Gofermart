@@ -8,10 +8,15 @@ import (
 	"github.com/mdflamingo/Gofermart/internal/logger"
 	"github.com/mdflamingo/Gofermart/internal/middleware"
 	"github.com/mdflamingo/Gofermart/internal/repository"
+	"github.com/mdflamingo/Gofermart/internal/service"
 )
 
-func NewRouter(conf *config.Config, storage *repository.DBStorage) *chi.Mux {
+func NewRouter(conf *config.Config, storage *repository.DBStorage, worker *AccrualWorker) *chi.Mux {
 	r := chi.NewRouter()
+
+	orderService := service.NewOrderService(storage)
+	balanceService := service.NewBalanceService(storage)
+	userService := service.NewUserService(storage)
 
 	r.Use(logger.RequestLogger)
 
@@ -21,11 +26,11 @@ func NewRouter(conf *config.Config, storage *repository.DBStorage) *chi.Mux {
 		})
 
 		r.Post("/api/user/register", func(w http.ResponseWriter, r *http.Request) {
-			AuthorizationHandler(w, r, storage, conf.CookieSecretKey)
+			AuthorizationHandler(w, r, userService, conf.CookieSecretKey)
 		})
 
 		r.Post("/api/user/login", func(w http.ResponseWriter, r *http.Request) {
-			AuthenticationHandler(w, r, storage, conf.CookieSecretKey)
+			AuthenticationHandler(w, r, userService, conf.CookieSecretKey)
 		})
 	})
 
@@ -33,22 +38,22 @@ func NewRouter(conf *config.Config, storage *repository.DBStorage) *chi.Mux {
 		r.Use(middleware.AuthMiddleware(conf.CookieSecretKey))
 
 		r.Post("/api/user/orders", func(w http.ResponseWriter, r *http.Request) {
-			UploadOrderNumHandler(w, r, storage)
+			UploadOrderHandler(w, r, orderService)
 		})
 		r.Get("/api/user/orders", func(w http.ResponseWriter, r *http.Request) {
-			GetOrdersHandler(w, r, storage)
+			GetOrdersHandler(w, r, orderService)
 		})
 		r.Get("/api/user/balance", func(w http.ResponseWriter, r *http.Request) {
-			GetBalanceHandler(w, r, storage)
+			GetBalanceHandler(w, r, balanceService)
 		})
 		r.Post("/api/user/balance/withdraw", func(w http.ResponseWriter, r *http.Request) {
-			WithdrawalsHandler(w, r, storage)
+			GetWithdrawalsHandler(w, r, balanceService)
 		})
 		r.Get("/api/user/withdrawals", func(w http.ResponseWriter, r *http.Request) {
-			GetWithdrawalsHandler(w, r, storage)
+			GetWithdrawalsHandler(w, r, balanceService)
 		})
 		r.Get("/api/user/{number}", rateLimit(func(w http.ResponseWriter, r *http.Request) {
-			GetOneOrderHandler(w, r, storage)
+			GetOrderHandler(w, r, orderService)
 		}))
 	})
 

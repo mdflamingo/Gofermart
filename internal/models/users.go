@@ -9,3 +9,13 @@ type UserDB struct {
 	Login    string
 	Password string
 }
+
+type User struct {
+	ID    int
+	Login string
+	Token string
+}
+
+type AuthResponse struct {
+	Token string `json:"token"`
+}

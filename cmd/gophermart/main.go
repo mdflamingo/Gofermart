@@ -39,13 +39,10 @@ func run(conf *config.Config) error {
 	}
 	defer storage.Close()
 
-	accrualURL := conf.AccrualHost
+	worker := handler.NewAccrualWorker(conf.AccrualHost, storage)
+	go worker.Start(context.Background())
 
-	handler.InitAccrualClient(accrualURL)
-
-	go handler.StartAccrualWorker(context.Background(), storage)
-
-	r := handler.NewRouter(conf, storage)
+	r := handler.NewRouter(conf, storage, worker)
 
 	return http.ListenAndServe(conf.RunAddr, r)
 }

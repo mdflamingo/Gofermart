@@ -1,175 +1,140 @@
 package handler
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
-	"strings"
 
 	"github.com/mdflamingo/Gofermart/internal/logger"
 	"github.com/mdflamingo/Gofermart/internal/middleware"
 	"github.com/mdflamingo/Gofermart/internal/models"
-	"github.com/mdflamingo/Gofermart/internal/repository"
+	"github.com/mdflamingo/Gofermart/internal/service"
 	"go.uber.org/zap"
 )
 
-func GetBalanceHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage) {
-	userID, err := middleware.GetUserIDFromRequest(request)
+func GetBalanceHandler(w http.ResponseWriter, r *http.Request, svc *service.BalanceService) {
+	userID, err := middleware.GetUserIDFromRequest(r)
 	if err != nil {
-		logger.Log.Warn("failed to get userID", zap.Error(err))
-		http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		logger.Log.Warn("failed to get user ID", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
-	balanceDB, err := storage.GetBalance(userID)
+
+	balance, err := svc.GetBalance(userID)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			logger.Log.Error("The balance does not exist for the incoming user", zap.Error(err))
-			http.Error(response, "User not found", http.StatusNotFound)
+		if errors.Is(err, service.ErrBalanceNotFound) {
+			logger.Log.Warn("balance not found for user", zap.Int("user_id", userID))
+			http.Error(w, "Balance not found", http.StatusNotFound)
 			return
 		}
-		logger.Log.Error("Failed to get balance", zap.Error(err))
-		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		logger.Log.Error("failed to get balance", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	if balanceDB == (repository.Balance{}) {
-		http.Error(response, "User not found", http.StatusNotFound)
-		return
-	}
-
-	balanceResponse := models.BalanceResponse{
-		Current:   balanceDB.Current,
-		Withdrawn: balanceDB.Withdrawn,
-	}
-
-	respJSON, err := json.Marshal(balanceResponse)
+	respJSON, err := json.Marshal(balance)
 	if err != nil {
-		logger.Log.Error("Failed to marshal response to JSON", zap.Error(err))
-		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		logger.Log.Error("failed to marshal response to JSON", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	response.Header().Set("Content-Type", "application/json")
-	response.WriteHeader(http.StatusOK)
-	response.Write(respJSON)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(respJSON)
 }
 
-func WithdrawalsHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage) {
-	if request.Header.Get("Content-Type") != "application/json" {
-		logger.Log.Warn("invalid content type", zap.String("content_type", request.Header.Get("Content-Type")))
-		http.Error(response, "Invalid Content-Type", http.StatusUnsupportedMediaType)
+func WithdrawHandler(w http.ResponseWriter, r *http.Request, svc *service.BalanceService) {
+	if r.Header.Get("Content-Type") != "application/json" {
+		logger.Log.Warn("invalid content type", zap.String("content_type", r.Header.Get("Content-Type")))
+		http.Error(w, "Invalid Content-Type", http.StatusUnsupportedMediaType)
 		return
 	}
 
-	userID, err := middleware.GetUserIDFromRequest(request)
+	userID, err := middleware.GetUserIDFromRequest(r)
 	if err != nil {
-		logger.Log.Warn("failed to get userID", zap.Error(err))
-		http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		logger.Log.Warn("failed to get user ID", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
 
-	var withdraw models.WithdrawnRequest
-	var buf bytes.Buffer
-
-	_, err = buf.ReadFrom(request.Body)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		logger.Log.Error("failed to read request body", zap.Error(err))
-		http.Error(response, err.Error(), http.StatusBadRequest)
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 		return
 	}
 
-	if err = json.Unmarshal(buf.Bytes(), &withdraw); err != nil {
-		logger.Log.Error("Failed to unmarshal JSON",
-			zap.Error(err),
-			zap.String("request_body", buf.String()))
-		http.Error(response, err.Error(), http.StatusBadRequest)
+	var req models.WithdrawnRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		logger.Log.Warn("failed to unmarshal request", zap.Error(err))
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	orderNum := strings.TrimSpace(withdraw.Order)
-	if !checkOrderNum(orderNum) {
-		logger.Log.Error("Incorrect order number format")
-		http.Error(response, "Incorrect order number format", http.StatusUnprocessableEntity)
+	if req.Sum <= 0 {
+		logger.Log.Warn("invalid withdrawal sum", zap.Float64("sum", req.Sum))
+		http.Error(w, "Sum must be positive", http.StatusBadRequest)
 		return
 	}
 
-	balanceDB, err := storage.GetBalance(userID)
+	err = svc.Withdraw(userID, req.Order, req.Sum)
 	if err != nil {
-		if errors.Is(err, repository.ErrNotFound) {
-			logger.Log.Error("The balance does not exist for the incoming user", zap.Error(err))
-			http.Error(response, "User not found", http.StatusNotFound)
-			return
-		}
-		logger.Log.Error("Failed to get balance", zap.Error(err))
-		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		handleWithdrawError(w, err)
 		return
 	}
 
-	if balanceDB == (repository.Balance{}) {
-		http.Error(response, "User not found", http.StatusNotFound)
-		return
-	}
-
-	if float64(withdraw.Sum) > balanceDB.Current {
-		logger.Log.Error("there are insufficient funds in the account")
-		http.Error(response, "Insufficient funds", http.StatusPaymentRequired)
-		return
-	}
-
-	err = storage.SaveWithdrawal(userID, orderNum, float64(withdraw.Sum))
-	if err != nil {
-		if errors.Is(err, repository.ErrInsufficientFunds) {
-			http.Error(response, "Insufficient funds", http.StatusPaymentRequired)
-			return
-		}
-		logger.Log.Error("Failed to save withdrawal", zap.Error(err))
-		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-
-	response.Header().Set("Content-Type", "text/plain")
-	response.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
 }
 
-func GetWithdrawalsHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage) {
-	userID, err := middleware.GetUserIDFromRequest(request)
+func handleWithdrawError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, service.ErrInvalidOrderNumber):
+		logger.Log.Warn("incorrect order number format")
+		http.Error(w, "Incorrect order number format", http.StatusUnprocessableEntity)
+	case errors.Is(err, service.ErrBalanceNotFound):
+		logger.Log.Warn("balance not found")
+		http.Error(w, "Balance not found", http.StatusNotFound)
+	case errors.Is(err, service.ErrInsufficientFunds):
+		logger.Log.Warn("insufficient funds for withdrawal")
+		http.Error(w, "Insufficient funds", http.StatusPaymentRequired)
+	default:
+		logger.Log.Error("failed to process withdrawal", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	}
+}
+
+func GetWithdrawalsHandler(w http.ResponseWriter, r *http.Request, svc *service.BalanceService) {
+	userID, err := middleware.GetUserIDFromRequest(r)
 	if err != nil {
-		logger.Log.Warn("failed to get userID", zap.Error(err))
-		http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		logger.Log.Warn("failed to get user ID", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 		return
 	}
-	withdrawalsDB, err := storage.GetWithdrawals(userID)
+
+	withdrawals, err := svc.GetWithdrawals(userID)
 	if err != nil {
-		logger.Log.Error("Failed to get withdrawals", zap.Error(err))
-		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		logger.Log.Error("failed to get withdrawals", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	if len(withdrawalsDB) == 0 {
-		response.Header().Set("Content-Type", "application/json")
-		response.WriteHeader(http.StatusNoContent)
+	if len(withdrawals) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	responses := make([]models.WithdrawnResponse, 0, len(withdrawalsDB))
-
-	for _, obj := range withdrawalsDB {
-		responses = append(responses, models.WithdrawnResponse{
-			Order:       obj.Order,
-			Sum:         obj.Sum,
-			ProcessedAt: obj.ProcessedAt,
-		})
-	}
-
-	respJSON, err := json.Marshal(responses)
+	respJSON, err := json.Marshal(withdrawals)
 	if err != nil {
-		logger.Log.Error("Failed to marshal response to JSON", zap.Error(err))
-		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		logger.Log.Error("failed to marshal response to JSON", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 		return
 	}
 
-	response.Header().Set("Content-Type", "application/json")
-	response.WriteHeader(http.StatusOK)
-	response.Write(respJSON)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(respJSON)
 }

@@ -2,154 +2,130 @@ package handler
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/mdflamingo/Gofermart/internal/logger"
 	"github.com/mdflamingo/Gofermart/internal/models"
-	"github.com/mdflamingo/Gofermart/internal/repository"
+	"github.com/mdflamingo/Gofermart/internal/service"
 	"go.uber.org/zap"
 )
 
-var ErrEmptyRequiredField = errors.New("login and password cannot be empty")
-var ErrJSONFormat = errors.New("invalid JSON format")
-var ErrRequestRead = errors.New("failed to read request body")
-
-func AuthorizationHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage, secretKey string) {
-	userDB, err := parseBody(response, request)
-	if err != nil {
-		http.Error(response, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	userID, err := storage.SaveUser(userDB)
-	if err != nil {
-		logger.Log.Error("failed to save user", zap.Error(err))
-
-		if errors.Is(err, repository.ErrConflict) {
-			http.Error(response, "User already exists", http.StatusConflict)
-			return
-		}
-
-		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-	err = storage.InitBalance(userID)
-	if err != nil {
-		logger.Log.Error("failed to init user balance", zap.Error(err))
-	}
-	jwtToken, err := createJWT(userID, secretKey)
-	if err != nil {
-		logger.Log.Error("failed to create JWT token", zap.Error(err))
-		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-
-	http.SetCookie(response, &http.Cookie{
-		Name:     "token",
-		Value:    jwtToken,
-		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   30 * 24 * 3600,
-		Path:     "/",
-		Expires:  time.Now().Add(30 * 24 * time.Hour),
-	})
-
-	response.Header().Set("Content-Type", "application/json")
-	response.WriteHeader(http.StatusOK)
-}
-func AuthenticationHandler(response http.ResponseWriter, request *http.Request, storage *repository.DBStorage, secretKey string) {
-	userDB, err := parseBody(response, request)
-	if err != nil {
-		http.Error(response, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	userID, err := storage.GetUser(userDB)
-	if err != nil {
-		logger.Log.Error("failed to save user", zap.Error(err))
-
-		if errors.Is(err, repository.ErrNotFound) {
-			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-			return
-		}
-
-		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-
-	jwtToken, err := createJWT(userID, secretKey)
-	if err != nil {
-		logger.Log.Error("failed to create JWT token", zap.Error(err))
-		http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-		return
-	}
-
-	http.SetCookie(response, &http.Cookie{
-		Name:     "token",
-		Value:    jwtToken,
-		HttpOnly: true,
-		Secure:   false,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   30 * 24 * 3600,
-		Path:     "/",
-		Expires:  time.Now().Add(30 * 24 * time.Hour),
-	})
-
-	response.Header().Set("Content-Type", "application/json")
-	response.WriteHeader(http.StatusOK)
-}
-
-func createJWT(userID int, secretKey string) (string, error) {
-	claims := jwt.MapClaims{
-		"userID": userID,
-		"exp":    time.Now().Add(30 * 24 * time.Hour).Unix(),
-		"iat":    time.Now().Unix(),
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString([]byte(secretKey))
-	if err != nil {
-		logger.Log.Error("Error creating JWT", zap.Error(err))
-		return "", err
-	}
-	return tokenString, nil
-}
-
-func parseBody(_ http.ResponseWriter, request *http.Request) (models.UserDB, error) {
-	var requestUser models.AuthUser
-	var buf bytes.Buffer
-
-	_, err := buf.ReadFrom(request.Body)
+func AuthorizationHandler(w http.ResponseWriter, r *http.Request, svc *service.UserService, secretKey string) {
+	_, err := io.ReadAll(r.Body)
 	if err != nil {
 		logger.Log.Error("failed to read request body", zap.Error(err))
-		return models.UserDB{}, ErrRequestRead
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
 	}
 
-	if err = json.Unmarshal(buf.Bytes(), &requestUser); err != nil {
-		logger.Log.Error("Failed to unmarshal JSON",
-			zap.Error(err),
-			zap.String("request_body", buf.String()))
-		return models.UserDB{}, ErrJSONFormat
+	var req models.AuthUser
+	var buf bytes.Buffer
+	if err = json.Unmarshal(buf.Bytes(), &req); err != nil {
+		logger.Log.Warn("invalid request body", zap.Error(err))
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
 	}
 
-	if requestUser.Login == "" || requestUser.Password == "" {
-		return models.UserDB{}, ErrEmptyRequiredField
+	userID, err := svc.Register(req)
+	if err != nil {
+		handleRegistrationError(w, err, req.Login)
+		return
 	}
 
-	h := sha256.New()
-	h.Write([]byte(requestUser.Password))
-	hashedPassword := h.Sum(nil)
-
-	userDB := models.UserDB{
-		Login:    requestUser.Login,
-		Password: hex.EncodeToString(hashedPassword),
+	token, err := svc.GenerateToken(userID, secretKey)
+	if err != nil {
+		logger.Log.Error("failed to create JWT token", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
 	}
-	return userDB, nil
+
+	setTokenCookie(w, token)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	resp := models.AuthResponse{Token: token}
+	respJSON, _ := json.Marshal(resp)
+	w.Write(respJSON)
+}
+
+func handleRegistrationError(w http.ResponseWriter, err error, login string) {
+	switch {
+	case errors.Is(err, service.ErrEmptyRequiredField):
+		logger.Log.Warn("empty required field", zap.String("login", login))
+		http.Error(w, "Login and password are required", http.StatusBadRequest)
+	case errors.Is(err, service.ErrUserAlreadyExists):
+		logger.Log.Warn("user already exists", zap.String("login", login))
+		http.Error(w, "User already exists", http.StatusConflict)
+	default:
+		logger.Log.Error("failed to register user", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	}
+}
+
+func AuthenticationHandler(w http.ResponseWriter, r *http.Request, svc *service.UserService, secretKey string) {
+	_, err := io.ReadAll(r.Body)
+	if err != nil {
+		logger.Log.Error("failed to read request body", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+
+	var req models.AuthUser
+	var buf bytes.Buffer
+	if err = json.Unmarshal(buf.Bytes(), &req); err != nil {
+		logger.Log.Warn("invalid request body", zap.Error(err))
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	userID, err := svc.Login(req)
+	if err != nil {
+		handleLoginError(w, err, req.Login)
+		return
+	}
+
+	token, err := svc.GenerateToken(userID, secretKey)
+	if err != nil {
+		logger.Log.Error("failed to create JWT token", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		return
+	}
+
+	setTokenCookie(w, token)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	resp := models.AuthResponse{Token: token}
+	respJSON, _ := json.Marshal(resp)
+	w.Write(respJSON)
+}
+
+func handleLoginError(w http.ResponseWriter, err error, login string) {
+	switch {
+	case errors.Is(err, service.ErrEmptyRequiredField):
+		logger.Log.Warn("empty required field", zap.String("login", login))
+		http.Error(w, "Login and password are required", http.StatusBadRequest)
+	case errors.Is(err, service.ErrInvalidCredentials):
+		logger.Log.Warn("invalid credentials", zap.String("login", login))
+		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
+	default:
+		logger.Log.Error("failed to login user", zap.Error(err))
+		http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+	}
+}
+
+func setTokenCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "token",
+		Value:    token,
+		HttpOnly: true,
+		Secure:   false,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(30 * 24 * time.Hour.Seconds()),
+		Path:     "/",
+	})
 }

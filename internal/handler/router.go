@@ -47,7 +47,7 @@ func NewRouter(conf *config.Config, storage *repository.DBStorage, worker *Accru
 			GetBalanceHandler(w, r, balanceService)
 		})
 		r.Post("/api/user/balance/withdraw", func(w http.ResponseWriter, r *http.Request) {
-			GetWithdrawalsHandler(w, r, balanceService)
+			WithdrawHandler(w, r, balanceService)
 		})
 		r.Get("/api/user/withdrawals", func(w http.ResponseWriter, r *http.Request) {
 			GetWithdrawalsHandler(w, r, balanceService)
